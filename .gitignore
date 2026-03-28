@@ -1,0 +1,33 @@
+# Dependências
+node_modules/
+*/node_modules/
+
+# Build
+dist/
+*/dist/
+build/
+
+# Variáveis de ambiente (NUNCA commitar o .env com valores reais)
+.env
+*/.env
+
+# Logs
+*.log
+logs/
+
+# Base de dados local
+*.sqlite
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker volumes locais
+docker-volumes/
