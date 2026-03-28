@@ -1,19 +1,21 @@
 import { SignJWT, jwtVerify } from "jose";
+import bcrypt from "bcryptjs";
 import { ENV } from "./env.js";
 
-const COOKIE_NAME = "r7monitor_session";
+export const COOKIE_NAME = "r7monitor_session";
+const SALT_ROUNDS = 12;
 const secret = new TextEncoder().encode(ENV.jwtSecret);
 
-export { COOKIE_NAME };
-
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 export interface SessionPayload {
-  userId: number;
-  openId: string;
-  name?: string | null;
-  email?: string | null;
-  role: "user" | "admin";
+  userId:   number;
+  username: string;
+  name?:    string | null;
+  email?:   string | null;
+  role:     "user" | "admin";
 }
 
+// ─── JWT ──────────────────────────────────────────────────────────────────────
 export async function signSession(payload: SessionPayload): Promise<string> {
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: "HS256" })
@@ -31,9 +33,18 @@ export async function verifySession(token: string): Promise<SessionPayload | nul
   }
 }
 
-/** Extrai o token do cookie de sessão do header Cookie */
+/** Extrai o token JWT do cookie de sessão */
 export function extractSessionToken(cookieHeader: string | undefined): string | null {
   if (!cookieHeader) return null;
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
   return match ? match[1]! : null;
+}
+
+// ─── Bcrypt ───────────────────────────────────────────────────────────────────
+export async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, SALT_ROUNDS);
+}
+
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash);
 }

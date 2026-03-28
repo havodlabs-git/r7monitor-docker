@@ -9,20 +9,19 @@ END $$;
 
 -- ─── Tabela users ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS users (
-  id             SERIAL PRIMARY KEY,
-  open_id        VARCHAR(64)  NOT NULL UNIQUE,
-  name           TEXT,
-  email          VARCHAR(320),
-  login_method   VARCHAR(64),
-  role           role         NOT NULL DEFAULT 'user',
-  created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-  updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-  last_signed_in TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+  id            SERIAL       PRIMARY KEY,
+  username      VARCHAR(64)  NOT NULL UNIQUE,
+  password_hash TEXT         NOT NULL,
+  name          TEXT,
+  email         VARCHAR(320),
+  role          role         NOT NULL DEFAULT 'user',
+  created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
 -- ─── Tabela r7_customers ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS r7_customers (
-  id          SERIAL PRIMARY KEY,
+  id          SERIAL       PRIMARY KEY,
   user_id     INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name        VARCHAR(128) NOT NULL,
   api_key     TEXT         NOT NULL,

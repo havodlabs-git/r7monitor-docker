@@ -14,7 +14,10 @@ import {
   ChevronDown,
   Check,
   Plus,
+  LogOut,
+  User,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -43,6 +46,8 @@ export default function R7Layout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [location, setLocation] = useLocation();
   const { customers, selectedCustomer, setSelectedCustomerId } = useCustomer();
+
+  const { user, logout } = useAuth();
 
   const clearCache = trpc.settings.clearCache.useMutation({
     onSuccess: () => toast.success("Cache limpo com sucesso"),
@@ -187,6 +192,23 @@ export default function R7Layout({ children }: { children: React.ReactNode }) {
             <RefreshCw className={cn("w-4 h-4 shrink-0", clearCache.isPending && "animate-spin")} />
             {!collapsed && <span className="text-xs">Limpar Cache</span>}
           </button>
+
+          {/* User info + logout */}
+          {!collapsed && user && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-sidebar-accent/30">
+              <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                <User className="w-3 h-3 text-primary" />
+              </div>
+              <span className="text-xs text-sidebar-foreground flex-1 truncate">{user.name ?? user.username}</span>
+              <button
+                onClick={() => logout()}
+                className="text-muted-foreground hover:text-destructive transition-colors"
+                title="Terminar sessão"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           {/* Collapse toggle */}
           <button

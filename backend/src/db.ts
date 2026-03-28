@@ -49,37 +49,45 @@ export async function waitForDb({ maxAttempts = 60, delayMs = 1000 } = {}): Prom
 export type User = typeof users.$inferSelect;
 
 // ─── Users ────────────────────────────────────────────────────────────────────
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) throw new Error("openId required");
+
+export async function getUserByUsername(username: string): Promise<User | undefined> {
   const db = await getDb();
-
-  const existing = await db.select().from(users).where(eq(users.openId, user.openId)).limit(1);
-
-  if (existing.length > 0) {
-    const updateSet: Partial<InsertUser> = { lastSignedIn: new Date(), updatedAt: new Date() };
-    if (user.name        !== undefined) updateSet.name        = user.name;
-    if (user.email       !== undefined) updateSet.email       = user.email;
-    if (user.loginMethod !== undefined) updateSet.loginMethod = user.loginMethod;
-    await db.update(users).set(updateSet).where(eq(users.openId, user.openId));
-  } else {
-    await db.insert(users).values({
-      openId:      user.openId,
-      name:        user.name        ?? null,
-      email:       user.email       ?? null,
-      loginMethod: user.loginMethod ?? null,
-      role:        user.openId === ENV.ownerOpenId ? "admin" : (user.role ?? "user"),
-      lastSignedIn: new Date(),
-    });
-  }
-}
-
-export async function getUserByOpenId(openId: string): Promise<User | undefined> {
-  const db = await getDb();
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.username, username))
+    .limit(1);
   return result[0];
 }
 
+export async function getUserById(id: number): Promise<User | undefined> {
+  const db = await getDb();
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+  return result[0];
+}
+
+export async function createUser(data: InsertUser): Promise<number> {
+  const db = await getDb();
+  const result = await db
+    .insert(users)
+    .values(data)
+    .returning({ id: users.id });
+  return result[0]!.id;
+}
+
+/** Conta o total de utilizadores — usado para criar o primeiro admin automaticamente */
+export async function countUsers(): Promise<number> {
+  const db = await getDb();
+  const result = await db.select({ id: users.id }).from(users);
+  return result.length;
+}
+
 // ─── R7 Customers ─────────────────────────────────────────────────────────────
+
 export async function listR7Customers(userId: number): Promise<R7Customer[]> {
   const db = await getDb();
   return db.select().from(r7Customers).where(eq(r7Customers.userId, userId));
