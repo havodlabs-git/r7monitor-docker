@@ -1,75 +1,71 @@
-version: "3.9"
-
 services:
-  # ─── Base de dados MySQL ──────────────────────────────────────────────────
+  # ─────────────────────────────────────────────
+  # Banco de dados PostgreSQL
+  # ─────────────────────────────────────────────
   db:
-    image: mysql:8.0
-    container_name: r7monitor-db
-    restart: unless-stopped
+    image: postgres:16-alpine
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-r7monitor}
-      MYSQL_USER: ${MYSQL_USER:-r7monitor}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      POSTGRES_USER: r7monitor
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: r7monitor
     volumes:
-      - db_data:/var/lib/mysql
+      - db_data:/var/lib/postgresql/data
+      # Migração automática na primeira inicialização
       - ./backend/drizzle/migrations/0000_init.sql:/docker-entrypoint-initdb.d/0000_init.sql:ro
-    ports:
-      - "${DB_PORT:-3306}:3306"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
     networks:
-      - r7monitor
+      - r7net
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U r7monitor -d r7monitor"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
 
-  # ─── Backend Node.js / Express / tRPC ────────────────────────────────────
-  backend:
+  # ─────────────────────────────────────────────
+  # Backend Node.js (API tRPC)
+  # ─────────────────────────────────────────────
+  api:
     build:
       context: ./backend
-      dockerfile: Dockerfile
-    container_name: r7monitor-backend
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: mysql://${MYSQL_USER:-r7monitor}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE:-r7monitor}
-      JWT_SECRET: ${JWT_SECRET}
-      CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-80},http://frontend:80
+    env_file:
+      - ./backend/.env
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "${BACKEND_PORT:-3000}:3000"
     networks:
-      - r7monitor
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+      - r7net
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
 
-  # ─── Frontend React / Vite / Nginx ────────────────────────────────────────
+  # ─────────────────────────────────────────────
+  # Frontend React (Vite build + Nginx HTTPS)
+  # O Nginx faz proxy reverso de /api/* → api:3000
+  # ─────────────────────────────────────────────
   frontend:
     build:
-      context: .
-      dockerfile: frontend/Dockerfile.compose
-    container_name: r7monitor-frontend
-    restart: unless-stopped
+      context: ./frontend
+      args:
+        VITE_API_URL: ""
+    environment:
+      BACKEND_HOST: api
+      BACKEND_PORT: 3000
+    volumes:
+      # Montar os certificados SSL do host (fullchain.pem + privkey.pem)
+      - ${CERTS_PATH:-./certs}:/etc/nginx/certs:ro
     depends_on:
-      backend:
-        condition: service_healthy
-    ports:
-      - "${FRONTEND_PORT:-80}:80"
+      - api
     networks:
-      - r7monitor
+      - r7net
+    ports:
+      - "443:443"
+    restart: unless-stopped
+
+networks:
+  r7net:
+    driver: bridge
 
 volumes:
   db_data:
-
-networks:
-  r7monitor:
-    driver: bridge

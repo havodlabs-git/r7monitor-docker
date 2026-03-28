@@ -1,28 +1,36 @@
--- R7 Monitor — Migração inicial
--- Executar: mysql -u <user> -p <database> < drizzle/migrations/0000_init.sql
+-- R7 Monitor — Migração inicial (PostgreSQL)
+-- Executada automaticamente pelo docker-entrypoint-initdb.d na primeira inicialização
 
-CREATE TABLE IF NOT EXISTS `users` (
-  `id` int AUTO_INCREMENT NOT NULL,
-  `openId` varchar(64) NOT NULL,
-  `name` text,
-  `email` varchar(320),
-  `loginMethod` varchar(64),
-  `role` enum('user','admin') NOT NULL DEFAULT 'user',
-  `createdAt` timestamp NOT NULL DEFAULT (now()),
-  `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
-  `lastSignedIn` timestamp NOT NULL DEFAULT (now()),
-  CONSTRAINT `users_id` PRIMARY KEY(`id`),
-  CONSTRAINT `users_openId_unique` UNIQUE(`openId`)
+-- ─── Enum de roles ────────────────────────────────────────────────────────────
+DO $$ BEGIN
+  CREATE TYPE role AS ENUM ('user', 'admin');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── Tabela users ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS users (
+  id             SERIAL PRIMARY KEY,
+  open_id        VARCHAR(64)  NOT NULL UNIQUE,
+  name           TEXT,
+  email          VARCHAR(320),
+  login_method   VARCHAR(64),
+  role           role         NOT NULL DEFAULT 'user',
+  created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  last_signed_in TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS `r7_customers` (
-  `id` int AUTO_INCREMENT NOT NULL,
-  `userId` int NOT NULL,
-  `name` varchar(128) NOT NULL,
-  `apiKey` text NOT NULL,
-  `region` varchar(8) NOT NULL DEFAULT 'us',
-  `incPattern` varchar(32) NOT NULL DEFAULT 'INC',
-  `createdAt` timestamp NOT NULL DEFAULT (now()),
-  `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT `r7_customers_id` PRIMARY KEY(`id`)
+-- ─── Tabela r7_customers ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS r7_customers (
+  id          SERIAL PRIMARY KEY,
+  user_id     INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name        VARCHAR(128) NOT NULL,
+  api_key     TEXT         NOT NULL,
+  region      VARCHAR(8)   NOT NULL DEFAULT 'us',
+  inc_pattern VARCHAR(32)  NOT NULL DEFAULT 'INC',
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+
+-- ─── Índices ──────────────────────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_r7_customers_user_id ON r7_customers(user_id);

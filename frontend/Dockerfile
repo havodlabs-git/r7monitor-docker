@@ -1,35 +1,48 @@
-# ─── Stage 1: Build ───────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────
+# Stage 1: Build do frontend com Vite
+# ──────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Instalar dependências
-COPY package.json ./
+COPY package*.json ./
 RUN npm install
 
-# Copiar código fonte do frontend
 COPY . .
 
-# Copiar tipos do backend (necessários para o tRPC type-safety)
-# O backend deve estar em ../backend relativamente ao frontend
-COPY --from=backend-types /backend/src/routers.ts /backend-types/src/routers.ts
-COPY --from=backend-types /backend/src/rapid7Client.ts /backend-types/src/rapid7Client.ts
+# VITE_API_URL vazio: o Nginx trata o proxy /api → backend
+ARG VITE_API_URL=
+ENV VITE_API_URL=${VITE_API_URL}
 
-# Build Vite
 RUN npm run build
 
-# ─── Stage 2: Runtime Nginx ───────────────────────────────────────────────────
-FROM nginx:alpine AS runtime
+# ──────────────────────────────────────────────
+# Stage 2: Servir com Nginx
+# ──────────────────────────────────────────────
+FROM nginx:alpine
 
-# Copiar build do Vite
+# Instala gettext para o envsubst
+RUN apk add --no-cache gettext
+
+# Remove a config padrão do Nginx
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copia a config como template (será processada pelo envsubst no arranque)
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+
+# Copia os ficheiros buildados
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copiar configuração do Nginx
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copia páginas de erro personalizadas
+COPY error_pages/50x.html /usr/share/nginx/html/50x.html
+COPY error_pages/404.html /usr/share/nginx/html/404.html
 
-EXPOSE 80
+EXPOSE 443
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget -qO- http://localhost:80 || exit 1
+# Valores por defeito caso as variáveis não sejam passadas
+ENV BACKEND_HOST=api
+ENV BACKEND_PORT=3000
 
-CMD ["nginx", "-g", "daemon off;"]
+# Script de arranque: substitui variáveis no template e inicia o Nginx
+CMD ["/bin/sh", "-c", \
+  "envsubst '$BACKEND_HOST $BACKEND_PORT' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -t && nginx -g 'daemon off;'"]

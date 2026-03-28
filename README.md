@@ -17,38 +17,41 @@ Sistema de monitorização centralizada para o **Rapid7 InsightIDR / InsightConn
 ## Estrutura do Repositório
 
 ```
-r7monitor/
-├── backend/                  # API Node.js / Express / tRPC
+r7monitor-docker/
+├── backend/                  # API Node.js 20 / Express / tRPC / Drizzle ORM
 │   ├── src/
-│   │   ├── index.ts          # Ponto de entrada do servidor
+│   │   ├── index.ts          # Servidor Express com waitForDb (padrão IOCS)
 │   │   ├── routers.ts        # Routers tRPC (customers, workflows, investigations, logSources)
 │   │   ├── rapid7Client.ts   # Cliente Rapid7 com cache em memória (TTL 2min)
-│   │   ├── db.ts             # Helpers da base de dados (Drizzle ORM)
+│   │   ├── db.ts             # Helpers PostgreSQL (Drizzle ORM + pg Pool)
 │   │   ├── auth.ts           # Autenticação JWT
 │   │   ├── trpc.ts           # Configuração tRPC + contexto
 │   │   └── env.ts            # Variáveis de ambiente validadas
 │   ├── drizzle/
-│   │   ├── schema.ts         # Schema da base de dados
-│   │   └── migrations/       # Migrações SQL
-│   ├── Dockerfile            # Build multi-stage Node.js 20 Alpine
+│   │   ├── schema.ts         # Schema PostgreSQL (pgTable, pgEnum, serial)
+│   │   └── migrations/
+│   │       └── 0000_init.sql # Migração inicial (aplicada automaticamente pelo PostgreSQL)
+│   ├── Dockerfile            # Node.js 20 Alpine + tsx runtime (sem build step)
 │   ├── package.json
 │   └── .env.example
 │
-├── frontend/                 # React 19 / Vite / Tailwind 4 / shadcn/ui
+├── frontend/                 # React 19 / Vite 7 / Tailwind 4 / shadcn/ui
 │   ├── src/
-│   │   ├── pages/            # Páginas: Dashboard, Workflows, Investigations, LogSources, Customers, Settings
-│   │   ├── components/r7/    # Componentes reutilizáveis: MetricCard, StatusBadge, TimeRangeSelector
+│   │   ├── pages/            # Dashboard, Workflows, Investigations, LogSources, Customers, Settings
+│   │   ├── components/r7/    # MetricCard, StatusBadge, TimeRangeSelector, PageHeader
 │   │   ├── components/ui/    # shadcn/ui components
 │   │   ├── contexts/         # CustomerContext (customer ativo)
 │   │   └── lib/trpc.ts       # Cliente tRPC
-│   ├── nginx.conf            # Nginx com proxy /api → backend + SPA fallback
-│   ├── Dockerfile            # Build standalone (sem acesso aos tipos do backend)
-│   ├── Dockerfile.compose    # Build via docker-compose (com acesso aos tipos do backend)
+│   ├── error_pages/
+│   │   ├── 404.html          # Página de erro 404
+│   │   └── 50x.html          # Página de erro 5xx
+│   ├── nginx.conf            # Template Nginx: HTTPS + envsubst + security headers + proxy /api
+│   ├── Dockerfile            # Build Vite multi-stage + Nginx Alpine com envsubst
 │   ├── package.json
 │   └── .env.example
 │
-├── docker-compose.yml        # Orquestração: frontend + backend + MySQL
-├── .env.example              # Template de variáveis de ambiente
+├── docker-compose.yml        # Orquestra: db (PostgreSQL 16) + api (backend) + frontend (Nginx HTTPS)
+├── .env.example              # Variáveis de ambiente da raiz (DB_PASSWORD, CERTS_PATH)
 └── README.md
 ```
 
@@ -58,29 +61,55 @@ r7monitor/
 
 - [Docker](https://docs.docker.com/get-docker/) 24+
 - [Docker Compose](https://docs.docker.com/compose/) v2+
+- Certificados SSL (`fullchain.pem` + `privkey.pem`) — ver secção [SSL](#ssl)
 
 ---
 
-## Deploy Rápido
+## Deploy
+
+### 1. Clonar o repositório
 
 ```bash
-# 1. Clonar o repositório
-git clone https://github.com/havodlabs-git/r7monitor.git
-cd r7monitor
-
-# 2. Configurar variáveis de ambiente
-cp .env.example .env
-# Editar .env com as passwords e o JWT_SECRET
-
-# 3. Subir todos os serviços
-docker compose up -d --build
-
-# 4. Verificar que os serviços estão a correr
-docker compose ps
-docker compose logs -f
+git clone https://github.com/havodlabs-git/r7monitor-docker.git
+cd r7monitor-docker
 ```
 
-O frontend estará disponível em **http://localhost:80** (ou na porta configurada em `FRONTEND_PORT`).
+### 2. Configurar variáveis de ambiente
+
+```bash
+# Raiz (DB_PASSWORD e CERTS_PATH)
+cp .env.example .env
+
+# Backend (DATABASE_URL, JWT_SECRET, CORS_ORIGINS, etc.)
+cp backend/.env.example backend/.env
+```
+
+Editar os dois ficheiros `.env` com os valores correctos.
+
+### 3. Certificados SSL {#ssl}
+
+Colocar os certificados na pasta definida em `CERTS_PATH` (padrão: `./certs`):
+
+```bash
+mkdir -p ./certs
+cp /etc/letsencrypt/live/r7monitor.example.com/fullchain.pem ./certs/
+cp /etc/letsencrypt/live/r7monitor.example.com/privkey.pem   ./certs/
+```
+
+> **Desenvolvimento local** — certificado auto-assinado:
+> ```bash
+> openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+>   -keyout ./certs/privkey.pem -out ./certs/fullchain.pem \
+>   -subj "/CN=localhost"
+> ```
+
+### 4. Iniciar os serviços
+
+```bash
+docker compose up -d --build
+```
+
+O sistema ficará disponível em **https://localhost** (porta 443).
 
 ---
 
@@ -88,7 +117,7 @@ O frontend estará disponível em **http://localhost:80** (ou na porta configura
 
 Após o primeiro deploy:
 
-1. Aceder a **http://localhost** no browser
+1. Aceder a **https://localhost** no browser
 2. Navegar para **Customers** na sidebar
 3. Clicar em **Adicionar Customer**
 4. Preencher:
@@ -100,68 +129,49 @@ Após o primeiro deploy:
 
 ---
 
-## APIs Rapid7 Utilizadas
-
-| Produto | Endpoint | Descrição |
-|---------|----------|-----------|
-| InsightConnect | `GET /connect/v1/jobs` | Jobs de workflows (filtrado por `status=failed`) |
-| InsightConnect | `GET /connect/v2/workflows/{id}` | Detalhes de um workflow |
-| InsightIDR v2 | `GET /idr/v2/investigations` | Lista de investigations abertas |
-| InsightIDR v2 | `GET /idr/v2/investigations/{id}/comments` | Comentários de uma investigation |
-| Log Search | `GET /management/logs` | Log sources e métricas de EPS |
-
----
-
-## Desenvolvimento Local
-
-### Backend
-
-```bash
-cd backend
-cp .env.example .env
-# Editar .env com DATABASE_URL e JWT_SECRET
-npm install
-npm run dev
-```
-
-O backend fica disponível em **http://localhost:3000**.
-
-### Frontend
-
-```bash
-cd frontend
-cp .env.example .env
-# VITE_API_URL=http://localhost:3000 (já configurado por padrão)
-npm install
-npm run dev
-```
-
-O frontend fica disponível em **http://localhost:5173** com proxy automático para o backend.
-
----
-
 ## Variáveis de Ambiente
 
-### Raiz (docker-compose)
+### Raiz (`.env`)
 
-| Variável | Obrigatória | Descrição |
-|----------|-------------|-----------|
-| `MYSQL_ROOT_PASSWORD` | Sim | Password root do MySQL |
-| `MYSQL_PASSWORD` | Sim | Password do utilizador da BD |
-| `JWT_SECRET` | Sim | Segredo JWT (mínimo 32 chars) |
-| `MYSQL_DATABASE` | Não | Nome da BD (padrão: `r7monitor`) |
-| `MYSQL_USER` | Não | Utilizador da BD (padrão: `r7monitor`) |
-| `FRONTEND_PORT` | Não | Porta do frontend (padrão: `80`) |
-| `BACKEND_PORT` | Não | Porta do backend (padrão: `3000`) |
+| Variável | Padrão | Descrição |
+|----------|--------|-----------|
+| `DB_PASSWORD` | `changeme` | Password do PostgreSQL |
+| `CERTS_PATH` | `./certs` | Caminho para os certificados SSL no host |
 
 ### Backend (`backend/.env`)
 
-| Variável | Descrição |
-|----------|-----------|
-| `DATABASE_URL` | `mysql://user:pass@host:3306/db` |
-| `JWT_SECRET` | Segredo para assinar tokens de sessão |
-| `PORT` | Porta do servidor (padrão: `3000`) |
-| `CORS_ORIGINS` | Origens permitidas (separadas por vírgula) |
+| Variável | Obrigatória | Descrição |
+|----------|-------------|-----------|
+| `DATABASE_URL` | Sim | `postgresql://r7monitor:<password>@db:5432/r7monitor` |
+| `JWT_SECRET` | Sim | Segredo JWT (mínimo 32 chars) — gerar com `openssl rand -hex 32` |
+| `PORT` | Não (3000) | Porta do servidor backend |
+| `CORS_ORIGINS` | Não | Origens CORS permitidas (separadas por vírgula) |
+| `OAUTH_SERVER_URL` | Não | URL do servidor Manus OAuth (deixar vazio para desativar) |
+| `OWNER_OPEN_ID` | Não | OpenID do proprietário (para role admin automático) |
+
+---
+
+## Serviços
+
+| Serviço | Porta | Descrição |
+|---------|-------|-----------|
+| `frontend` | 443 | Nginx HTTPS — serve o React e faz proxy `/api/*` → backend |
+| `api` | 3000 | Backend Node.js/Express/tRPC |
+| `db` | 5432 | PostgreSQL 16 |
+
+---
+
+## APIs Rapid7 Utilizadas
+
+| Produto | Endpoint | Módulo |
+|---------|----------|--------|
+| InsightConnect | `GET /connect/v1/jobs?status=failed` | Workflows |
+| InsightConnect | `GET /connect/v2/workflows/{id}` | Workflows |
+| InsightIDR v2 | `GET /idr/v2/investigations` | Investigations |
+| InsightIDR v2 | `GET /idr/v2/investigations/{id}/comments` | Investigations |
+| Log Search | `GET /management/logs` | Log Sources |
+
+Regiões suportadas: `us`, `eu`, `ca`, `au`, `ap`.
 
 ---
 
@@ -169,36 +179,24 @@ O frontend fica disponível em **http://localhost:5173** com proxy automático p
 
 ```bash
 # Ver logs em tempo real
-docker compose logs -f backend
+docker compose logs -f
+
+# Ver logs de um serviço específico
+docker compose logs -f api
 docker compose logs -f frontend
 
 # Reiniciar um serviço
-docker compose restart backend
+docker compose restart api
 
-# Parar tudo
+# Parar todos os serviços
 docker compose down
 
 # Parar e remover volumes (APAGA OS DADOS)
 docker compose down -v
 
-# Entrar no container do backend
-docker compose exec backend sh
-
-# Verificar saúde dos serviços
-docker compose ps
+# Reconstruir e reiniciar
+docker compose up -d --build
 ```
-
----
-
-## Cache
-
-O backend implementa cache em memória com **TTL de 2 minutos** para todas as chamadas às APIs do Rapid7, evitando rate limiting. O cache pode ser limpo manualmente na página de **Definições** de cada customer.
-
----
-
-## Intervalos de Tempo
-
-Todos os módulos suportam filtros de tempo configuráveis: **15min, 30min, 1h, 6h, 24h, 7d**.
 
 ---
 

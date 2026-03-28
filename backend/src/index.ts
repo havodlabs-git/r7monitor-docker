@@ -5,6 +5,7 @@ import * as trpcExpress from "@trpc/server/adapters/express";
 import { appRouter } from "./routers.js";
 import { createContext } from "./trpc.js";
 import { ENV } from "./env.js";
+import { waitForDb } from "./db.js";
 
 const app = express();
 
@@ -31,8 +32,18 @@ app.use(
 );
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-app.listen(ENV.port, "0.0.0.0", () => {
-  console.log(`[R7 Monitor Backend] Running on http://0.0.0.0:${ENV.port}`);
-  console.log(`[R7 Monitor Backend] CORS origins: ${ENV.corsOrigins.join(", ")}`);
-  console.log(`[R7 Monitor Backend] Environment: ${ENV.nodeEnv}`);
+async function main() {
+  // Aguarda a BD ficar disponível antes de arrancar — padrão IOCS
+  await waitForDb({ maxAttempts: 60, delayMs: 1000 });
+
+  app.listen(ENV.port, "0.0.0.0", () => {
+    console.log(`[R7 Monitor] Backend a correr em http://0.0.0.0:${ENV.port}`);
+    console.log(`[R7 Monitor] CORS origins: ${ENV.corsOrigins.join(", ")}`);
+    console.log(`[R7 Monitor] Ambiente: ${ENV.nodeEnv}`);
+  });
+}
+
+main().catch((err) => {
+  console.error("[FATAL] Falha ao iniciar:", err);
+  process.exit(1);
 });

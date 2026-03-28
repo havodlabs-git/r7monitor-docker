@@ -1,69 +1,95 @@
 import { eq, and } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { users, r7Customers, InsertUser, InsertR7Customer, R7Customer } from "../drizzle/schema.js";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { users, r7Customers, InsertUser, R7Customer } from "../drizzle/schema.js";
 import { ENV } from "./env.js";
 
+// ─── Pool PostgreSQL ──────────────────────────────────────────────────────────
+let _pool: Pool | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
 
+function getPool(): Pool {
+  if (!_pool) {
+    _pool = new Pool({ connectionString: ENV.databaseUrl });
+  }
+  return _pool;
+}
+
 export async function getDb() {
-  if (!_db && ENV.databaseUrl) {
-    try {
-      _db = drizzle(ENV.databaseUrl);
-    } catch (error) {
-      console.warn("[DB] Failed to connect:", error);
-      _db = null;
-    }
+  if (!_db) {
+    _db = drizzle(getPool());
   }
   return _db;
 }
 
-// ─── Users ────────────────────────────────────────────────────────────────────
+/**
+ * Aguarda a base de dados ficar disponível — padrão IOCS.
+ */
+export async function waitForDb({ maxAttempts = 60, delayMs = 1000 } = {}): Promise<void> {
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const client = await getPool().connect();
+      try {
+        await client.query("SELECT 1");
+        console.log(`[DB] PostgreSQL disponível (tentativa ${attempt})`);
+        return;
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      lastErr = err;
+      console.log(`[DB] Aguardando PostgreSQL... (tentativa ${attempt}/${maxAttempts})`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr ?? new Error("DB_NOT_READY");
+}
 
+export type User = typeof users.$inferSelect;
+
+// ─── Users ────────────────────────────────────────────────────────────────────
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("openId required");
   const db = await getDb();
-  if (!db) return;
 
-  const values: InsertUser = { openId: user.openId };
-  const updateSet: Record<string, unknown> = {};
+  const existing = await db.select().from(users).where(eq(users.openId, user.openId)).limit(1);
 
-  const fields = ["name", "email", "loginMethod"] as const;
-  for (const f of fields) {
-    if (user[f] !== undefined) {
-      values[f] = user[f] ?? null;
-      updateSet[f] = user[f] ?? null;
-    }
+  if (existing.length > 0) {
+    const updateSet: Partial<InsertUser> = { lastSignedIn: new Date(), updatedAt: new Date() };
+    if (user.name        !== undefined) updateSet.name        = user.name;
+    if (user.email       !== undefined) updateSet.email       = user.email;
+    if (user.loginMethod !== undefined) updateSet.loginMethod = user.loginMethod;
+    await db.update(users).set(updateSet).where(eq(users.openId, user.openId));
+  } else {
+    await db.insert(users).values({
+      openId:      user.openId,
+      name:        user.name        ?? null,
+      email:       user.email       ?? null,
+      loginMethod: user.loginMethod ?? null,
+      role:        user.openId === ENV.ownerOpenId ? "admin" : (user.role ?? "user"),
+      lastSignedIn: new Date(),
+    });
   }
-
-  if (user.lastSignedIn) { values.lastSignedIn = user.lastSignedIn; updateSet.lastSignedIn = user.lastSignedIn; }
-  if (user.role) { values.role = user.role; updateSet.role = user.role; }
-  else if (user.openId === ENV.ownerOpenId) { values.role = "admin"; updateSet.role = "admin"; }
-
-  if (!values.lastSignedIn) values.lastSignedIn = new Date();
-  if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
-
-  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
 }
 
-export async function getUserByOpenId(openId: string) {
+export async function getUserByOpenId(openId: string): Promise<User | undefined> {
   const db = await getDb();
-  if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-  return result[0] ?? undefined;
+  return result[0];
 }
 
 // ─── R7 Customers ─────────────────────────────────────────────────────────────
-
 export async function listR7Customers(userId: number): Promise<R7Customer[]> {
   const db = await getDb();
-  if (!db) return [];
   return db.select().from(r7Customers).where(eq(r7Customers.userId, userId));
 }
 
 export async function getR7Customer(userId: number, customerId: number): Promise<R7Customer | null> {
   const db = await getDb();
-  if (!db) return null;
-  const result = await db.select().from(r7Customers)
+  const result = await db
+    .select()
+    .from(r7Customers)
     .where(and(eq(r7Customers.id, customerId), eq(r7Customers.userId, userId)))
     .limit(1);
   return result[0] ?? null;
@@ -74,26 +100,28 @@ export async function createR7Customer(
   data: { name: string; apiKey: string; region: string; incPattern: string }
 ): Promise<number> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const result = await db.insert(r7Customers).values({ userId, ...data });
-  return (result as unknown as { insertId: number }).insertId;
+  const result = await db
+    .insert(r7Customers)
+    .values({ userId, ...data })
+    .returning({ id: r7Customers.id });
+  return result[0]!.id;
 }
 
 export async function updateR7Customer(
   userId: number,
   customerId: number,
   data: Partial<{ name: string; apiKey: string; region: string; incPattern: string }>
-) {
+): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.update(r7Customers)
-    .set(data)
+  await db
+    .update(r7Customers)
+    .set({ ...data, updatedAt: new Date() })
     .where(and(eq(r7Customers.id, customerId), eq(r7Customers.userId, userId)));
 }
 
-export async function deleteR7Customer(userId: number, customerId: number) {
+export async function deleteR7Customer(userId: number, customerId: number): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(r7Customers)
+  await db
+    .delete(r7Customers)
     .where(and(eq(r7Customers.id, customerId), eq(r7Customers.userId, userId)));
 }
