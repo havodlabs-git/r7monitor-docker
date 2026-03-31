@@ -33,6 +33,18 @@ const minutesAgoSchema = z.number().refine(
   { message: `minutesAgo deve ser um de: ${VALID_MINUTES.join(", ")}` }
 );
 
+// ─── Helper: converter erros Rapid7 em TRPCError ─────────────────────────────
+function handleR7Error(err: unknown, context = ""): never {
+  const code = (err as NodeJS.ErrnoException).code;
+  const msg = (err as Error).message ?? "Erro desconhecido";
+  if (code === "401") throw new TRPCError({ code: "UNAUTHORIZED", message: "API Key inválida ou sem permissões" });
+  if (code === "403") throw new TRPCError({ code: "FORBIDDEN", message: "API Key sem permissões suficientes" });
+  if (code === "404") throw new TRPCError({ code: "NOT_FOUND", message: "Recurso não encontrado na API Rapid7" });
+  if (code === "429") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Rate limit atingido. Aguarde e tente novamente." });
+  console.error(`[R7 Error${context ? ` in ${context}` : ""}]`, msg);
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Erro na API Rapid7: ${msg}` });
+}
+
 // ─── Helper: cookie de sessão ─────────────────────────────────────────────────
 function setSessionCookie(res: import("express").Response, token: string, isHttps: boolean) {
   res.cookie(COOKIE_NAME, token, {
@@ -491,6 +503,47 @@ const logSourcesRouter = router({
     }),
 });
 
+// ─── Assets Router ───────────────────────────────────────────────────────────
+// Usa POST /idr/v1/assets/_search para listar e pesquisar assets.
+
+const assetsRouter = router({
+  list: protectedProcedure
+    .input(z.object({
+      customerId: z.number(),
+      query: z.string().default(""),
+      size: z.number().min(1).max(200).default(100),
+      page: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const c = await requireCustomer(ctx.user.userId, input.customerId);
+      let assetsData: r7.AssetsResponse | undefined;
+      try {
+        assetsData = await r7.getAssets(c.apiKey, c.region, {
+          size: input.size,
+          index: input.page,
+          query: input.query || undefined,
+        });
+      } catch (err) { handleR7Error(err, "assets.list"); }
+      const assets = assetsData?.data ?? [];
+      const total = assetsData?.metadata?.total_data ?? 0;
+      return { assets, total };
+    }),
+
+  stats: protectedProcedure
+    .input(z.object({
+      customerId: z.number(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const c = await requireCustomer(ctx.user.userId, input.customerId);
+      let assetsData: r7.AssetsResponse | undefined;
+      try {
+        assetsData = await r7.getAssets(c.apiKey, c.region, { size: 1, index: 0 });
+      } catch (err) { handleR7Error(err, "assets.stats"); }
+      const total = assetsData?.metadata?.total_data ?? 0;
+      return { total };
+    }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 export const appRouter = router({
   auth:           authRouter,
@@ -498,6 +551,7 @@ export const appRouter = router({
   workflows:      workflowsRouter,
   investigations: investigationsRouter,
   logSources:     logSourcesRouter,
+  assets:         assetsRouter,
 });
 
 export type AppRouter = typeof appRouter;

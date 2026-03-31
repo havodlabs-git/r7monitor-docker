@@ -21,8 +21,8 @@ export default function LogSources() {
     ? { customerId: selectedCustomerId, minutesAgo }
     : skipToken;
 
-  const { data, isLoading, isError, error } = trpc.logSources.issues.useQuery(queryInput, { retry: 1 });
-  const statsQuery = trpc.logSources.stats.useQuery(queryInput, { retry: 1 });
+  const { data, isLoading, isError, error } = trpc.logSources.issues.useQuery(queryInput, { retry: 0 });
+  const statsQuery = trpc.logSources.stats.useQuery(queryInput, { retry: 0 });
 
   const handleRefresh = useCallback(() => {
     if (selectedCustomerId === null) return;
@@ -48,18 +48,27 @@ export default function LogSources() {
     );
   }
 
+  if (isError) {
+    return (
+      <PageShell>
+        <PageHeader title="Log Sources com Problemas" description="Log sources sem EPS, inativos ou com erros de status" onRefresh={handleRefresh} refreshing={false} />
+        <ErrorState message={`Erro ao comunicar com a API Rapid7: ${(error as unknown as Error | null)?.message ?? "Erro desconhecido"}. Verifique a API Key nas Definições.`} />
+      </PageShell>
+    );
+  }
+
   const issues = (data?.issues ?? []) as Array<{
-    id: string;
-    name: string;
-    sourceType: string;
-    logsets: string;
-    tokensCount: number;
-    issueType: string | null;
-    issueReason: string | null;
+    id?: string | null;
+    name?: string | null;
+    sourceType?: string | null;
+    logsets?: string | null;
+    tokensCount?: number | null;
+    issueType?: string | null;
+    issueReason?: string | null;
   }>;
 
   const filtered = issues.filter((ls) => {
-    const matchSearch = !search || ls.name.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = !search || (ls.name ?? "").toLowerCase().includes(search.toLowerCase());
     const matchFilter = filter === "ALL" || ls.issueType === filter;
     return matchSearch && matchFilter;
   });
@@ -72,8 +81,8 @@ export default function LogSources() {
         <PageHeader
           title="Log Sources com Problemas"
           description={selectedCustomer
-            ? `${selectedCustomer.name} — Log sources sem EPS, inativos ou com erros`
-            : "Log sources sem EPS, inativos ou com erros de status"}
+            ? `${selectedCustomer.name} — Log sources sem actividade nas últimas 24h ou 7 dias`
+            : "Log sources sem actividade recente ou não configurados"}
           onRefresh={handleRefresh}
           refreshing={isLoading || statsQuery.isLoading}
           noMargin
@@ -88,16 +97,16 @@ export default function LogSources() {
             <p className="text-2xl font-bold text-green-400 tabular-nums">{stats.healthy}</p>
           </div>
           <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3">
-            <p className="text-xs text-muted-foreground">Sem EPS</p>
+            <p className="text-xs text-muted-foreground">Sem EPS (24h)</p>
             <p className="text-2xl font-bold text-red-400 tabular-nums">{stats.noEps}</p>
           </div>
-          <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-4 py-3">
-            <p className="text-xs text-muted-foreground">Inativos</p>
-            <p className="text-2xl font-bold text-yellow-400 tabular-nums">{stats.stale}</p>
-          </div>
           <div className="rounded-lg border border-orange-500/20 bg-orange-500/5 px-4 py-3">
-            <p className="text-xs text-muted-foreground">Com Erro</p>
-            <p className="text-2xl font-bold text-orange-400 tabular-nums">{stats.statusError}</p>
+            <p className="text-xs text-muted-foreground">Inativos (7d)</p>
+            <p className="text-2xl font-bold text-orange-400 tabular-nums">{stats.stale ?? 0}</p>
+          </div>
+          <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-4 py-3">
+            <p className="text-xs text-muted-foreground">Não Configurados</p>
+            <p className="text-2xl font-bold text-yellow-400 tabular-nums">{stats.stale}</p>
           </div>
         </div>
       )}
@@ -115,9 +124,9 @@ export default function LogSources() {
           </SelectTrigger>
           <SelectContent className="bg-card border-border">
             <SelectItem value="ALL">Todos os problemas</SelectItem>
-            <SelectItem value="NO_EPS">Sem EPS</SelectItem>
-            <SelectItem value="STALE">Inativos</SelectItem>
-            <SelectItem value="STATUS_ERROR">Com Erro</SelectItem>
+            <SelectItem value="NO_EPS">Sem EPS (24h)</SelectItem>
+            <SelectItem value="INACTIVE">Inativos (7d)</SelectItem>
+            <SelectItem value="STALE">Não Configurados</SelectItem>
           </SelectContent>
         </Select>
         {data && (
@@ -129,7 +138,7 @@ export default function LogSources() {
 
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         {isError ? (
-          <ErrorState message={error?.message} onRetry={handleRefresh} />
+          <ErrorState message={(error as unknown as Error | null)?.message ?? "Erro desconhecido"} onRetry={handleRefresh} />
         ) : isLoading ? (
           <div className="p-8 flex justify-center">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -157,14 +166,14 @@ export default function LogSources() {
               </thead>
               <tbody>
                 {filtered.map((ls) => (
-                  <tr key={ls.id} className="border-b border-border/50 hover:bg-accent/30 transition-colors">
+                  <tr key={ls.id ?? ls.name ?? Math.random().toString()} className="border-b border-border/50 hover:bg-accent/30 transition-colors">
                     <td className="py-3 px-4">
-                      <p className="text-sm font-medium text-foreground max-w-xs truncate" title={ls.name}>{ls.name}</p>
-                      <p className="text-xs text-muted-foreground font-mono">{ls.id.slice(0, 16)}…</p>
+                      <p className="text-sm font-medium text-foreground max-w-xs truncate" title={ls.name ?? ""}>{ls.name ?? "—"}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{ls.id ? ls.id.slice(0, 16) + "…" : "—"}</p>
                     </td>
-                    <td className="py-3 px-4 text-sm text-muted-foreground">{ls.sourceType}</td>
-                    <td className="py-3 px-4 text-sm text-muted-foreground max-w-[160px] truncate" title={ls.logsets}>{ls.logsets}</td>
-                    <td className="py-3 px-4 text-sm text-muted-foreground tabular-nums">{ls.tokensCount}</td>
+                    <td className="py-3 px-4 text-sm text-muted-foreground">{ls.sourceType ?? "—"}</td>
+                    <td className="py-3 px-4 text-sm text-muted-foreground max-w-[160px] truncate" title={ls.logsets ?? ""}>{ls.logsets ?? "—"}</td>
+                    <td className="py-3 px-4 text-sm text-muted-foreground tabular-nums">{ls.tokensCount ?? 0}</td>
                     <td className="py-3 px-4">{ls.issueType && <IssueTypeBadge type={ls.issueType} />}</td>
                     <td className="py-3 px-4 text-xs text-muted-foreground max-w-xs truncate" title={ls.issueReason ?? ""}>{ls.issueReason ?? "—"}</td>
                   </tr>

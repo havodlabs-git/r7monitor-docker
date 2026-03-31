@@ -14,6 +14,7 @@ import Investigations from "./pages/Investigations";
 import LogSources from "./pages/LogSources";
 import Settings from "./pages/Settings";
 import Customers from "./pages/Customers";
+import Assets from "./pages/Assets";
 
 function AppRoutes() {
   return (
@@ -32,6 +33,7 @@ function AppRoutes() {
                 <Route path="/investigations" component={Investigations} />
                 <Route path="/log-sources" component={LogSources} />
                 <Route path="/customers" component={Customers} />
+                <Route path="/assets" component={Assets} />
                 <Route path="/settings" component={Settings} />
                 <Route>
                   <div className="flex items-center justify-center h-full text-muted-foreground">

@@ -5,6 +5,7 @@ import {
   GitBranch,
   Search,
   Database,
+  Monitor,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { path: "/workflows", label: "Workflows", icon: GitBranch },
   { path: "/investigations", label: "Investigations", icon: Search },
   { path: "/log-sources", label: "Log Sources", icon: Database },
+  { path: "/assets", label: "Assets", icon: Monitor },
 ];
 
 const BOTTOM_NAV = [
