@@ -19,6 +19,7 @@ import {
   deleteR7Customer,
 } from "./db.js";
 import * as r7 from "./rapid7Client.js";
+import * as snow from "./serviceNowClient.js";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const VALID_REGIONS = ["us", "eu", "ca", "au", "ap"] as const;
@@ -168,21 +169,27 @@ const customersRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     const customers = await listR7Customers(ctx.user.userId);
     return customers.map((c) => ({
-      id:            c.id,
-      name:          c.name,
-      region:        c.region,
-      incPattern:    c.incPattern,
-      apiKeyPreview: c.apiKey ? `****${c.apiKey.slice(-4)}` : "****",
-      createdAt:     c.createdAt,
+      id:              c.id,
+      name:            c.name,
+      region:          c.region,
+      orgId:           c.orgId ?? null,
+      incPattern:      c.incPattern,
+      snowCallerId:    c.snowCallerId ?? null,
+      assignmentGroup: c.assignmentGroup ?? "SOC_N1",
+      apiKeyPreview:   c.apiKey ? `****${c.apiKey.slice(-4)}` : "****",
+      createdAt:       c.createdAt,
     }));
   }),
 
   create: protectedProcedure
     .input(z.object({
-      name:       z.string().min(1).max(128),
-      apiKey:     z.string().min(10),
-      region:     z.enum(VALID_REGIONS),
-      incPattern: z.string().min(1).max(32).default("INC"),
+      name:            z.string().min(1).max(128),
+      apiKey:          z.string().min(10),
+      orgId:           z.string().max(64).optional(),
+      region:          z.enum(VALID_REGIONS),
+      incPattern:      z.string().min(1).max(32).default("INC"),
+      snowCallerId:    z.string().max(64).optional(),
+      assignmentGroup: z.string().max(128).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       // Validar a API Key antes de guardar
@@ -191,17 +198,28 @@ const customersRouter = router({
       } catch {
         throw new TRPCError({ code: "BAD_REQUEST", message: "API Key inválida ou sem permissões para a região selecionada" });
       }
-      const id = await createR7Customer(ctx.user.userId, input);
+      const id = await createR7Customer(ctx.user.userId, {
+        name: input.name,
+        apiKey: input.apiKey,
+        orgId: input.orgId ?? null,
+        region: input.region,
+        incPattern: input.incPattern,
+        snowCallerId: input.snowCallerId ?? null,
+        assignmentGroup: input.assignmentGroup ?? null,
+      });
       return { id };
     }),
 
   update: protectedProcedure
     .input(z.object({
-      id:         z.number(),
-      name:       z.string().min(1).max(128).optional(),
-      apiKey:     z.string().min(10).optional(),
-      region:     z.enum(VALID_REGIONS).optional(),
-      incPattern: z.string().min(1).max(32).optional(),
+      id:              z.number(),
+      name:            z.string().min(1).max(128).optional(),
+      apiKey:          z.string().min(10).optional(),
+      orgId:           z.string().max(64).optional().nullable(),
+      region:          z.enum(VALID_REGIONS).optional(),
+      incPattern:      z.string().min(1).max(32).optional(),
+      snowCallerId:    z.string().max(64).optional().nullable(),
+      assignmentGroup: z.string().max(128).optional().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
       await requireCustomer(ctx.user.userId, input.id);
@@ -544,7 +562,69 @@ const assetsRouter = router({
     }),
 });
 
-// ─── App Router ───────────────────────────────────────────────────────────────
+// ─── Incidents Router (ServiceNow) ─────────────────────────────────────────────────
+const incidentsRouter = router({
+  create: protectedProcedure
+    .input(z.object({
+      customerId: z.number(),
+      investigationRrn: z.string().min(1),
+      investigationTitle: z.string().min(1),
+      investigationPriority: z.string().default("MEDIUM"),
+      investigationCreatedTime: z.string().default(""),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const c = await requireCustomer(ctx.user.userId, input.customerId);
+
+      const regionMap: Record<string, string> = {
+        us: "us", us2: "us2", us3: "us3",
+        eu: "eu", ca: "ca", au: "au", ap: "ap",
+      };
+      const regionPrefix = regionMap[c.region] ?? "eu";
+      const idrBaseUrl = `https://${regionPrefix}.idr.insight.rapid7.com/op/${c.orgId ?? ""}#/investigations/`;
+
+      const result = await snow.createIncident({
+        title: input.investigationTitle,
+        priority: input.investigationPriority,
+        createdTime: input.investigationCreatedTime,
+        rrn: input.investigationRrn,
+        idrBaseUrl,
+        callerId: c.snowCallerId ?? undefined,
+        assignmentGroup: c.assignmentGroup ?? "SOC_N1",
+      });
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error ?? "Erro ao criar incidente no ServiceNow",
+        });
+      }
+
+      // Adicionar comentário na investigation do IDR com o número do INC
+      try {
+        await r7.createInvestigationComment(
+          c.apiKey,
+          c.region,
+          input.investigationRrn,
+          result.number!,
+        );
+      } catch (err) {
+        console.warn("[incidents.create] Aviso: não foi possível adicionar comentário ao IDR:", (err as Error).message);
+      }
+
+      return {
+        success: true,
+        number: result.number,
+        sysId: result.sysId,
+        incidentUrl: result.incidentUrl,
+      };
+    }),
+
+  testSnowConnection: protectedProcedure.mutation(async () => {
+    return snow.testConnection();
+  }),
+});
+
+// ─── App Router ───────────────────────────────────────────────────────────────────
 export const appRouter = router({
   auth:           authRouter,
   customers:      customersRouter,
@@ -552,6 +632,6 @@ export const appRouter = router({
   investigations: investigationsRouter,
   logSources:     logSourcesRouter,
   assets:         assetsRouter,
+  incidents:      incidentsRouter,
 });
-
 export type AppRouter = typeof appRouter;

@@ -105,7 +105,7 @@ export async function getR7Customer(userId: number, customerId: number): Promise
 
 export async function createR7Customer(
   userId: number,
-  data: { name: string; apiKey: string; region: string; incPattern: string }
+  data: { name: string; apiKey: string; region: string; incPattern: string; orgId?: string | null; snowCallerId?: string | null; assignmentGroup?: string | null }
 ): Promise<number> {
   const db = await getDb();
   const result = await db
@@ -118,7 +118,7 @@ export async function createR7Customer(
 export async function updateR7Customer(
   userId: number,
   customerId: number,
-  data: Partial<{ name: string; apiKey: string; region: string; incPattern: string }>
+  data: Partial<{ name: string; apiKey: string; region: string; incPattern: string; orgId: string | null; snowCallerId: string | null; assignmentGroup: string | null }>
 ): Promise<void> {
   const db = await getDb();
   await db

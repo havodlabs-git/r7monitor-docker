@@ -312,6 +312,40 @@ export async function getInvestigationComments(
   return result;
 }
 
+/**
+ * Cria um comentário numa investigation do InsightIDR.
+ * Endpoint: POST /idr/v1/comments/{rrn}
+ * Usado para adicionar o número do INC (ServiceNow) à investigation.
+ */
+export async function createInvestigationComment(
+  apiKey: string,
+  region: string,
+  rrn: string,
+  body: string,
+): Promise<void> {
+  const url = new URL(`${idrBase(region)}/idr/v1/comments/${encodeURIComponent(rrn)}`);
+
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      "X-Api-Key": apiKey,
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+    },
+    body: JSON.stringify({ body }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    throw new Error(`Rapid7 create comment error ${res.status}: ${errBody}`);
+  }
+
+  // Limpar cache de comentários desta investigation
+  const keyId = apiKey.slice(-8);
+  const prefix = `comments_${region}_${keyId}_${rrn}`;
+  cache.forEach((_, key) => { if (key.startsWith(prefix)) cache.delete(key); });
+}
+
 // ─── Log Search — Log Sources ─────────────────────────────────────────────────
 // Documentação: https://docs.rapid7.com/insightidr/insightidr-rest-api/
 // Endpoint: GET /management/logs (base URL diferente: rest.logs.insight.rapid7.com)

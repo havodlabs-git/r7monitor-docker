@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Wifi, WifiOff, Eye, EyeOff, Loader2, Building2, CheckCircle, XCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Wifi, Eye, EyeOff, Loader2, Building2, CheckCircle, XCircle, Hash, User } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { PageHeader, PageShell } from "@/components/r7/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -22,11 +22,22 @@ const REGIONS = [
 type CustomerForm = {
   name: string;
   apiKey: string;
+  orgId: string;
   region: string;
   incPattern: string;
+  snowCallerId: string;
+  assignmentGroup: string;
 };
 
-const DEFAULT_FORM: CustomerForm = { name: "", apiKey: "", region: "us", incPattern: "INC" };
+const DEFAULT_FORM: CustomerForm = {
+  name: "",
+  apiKey: "",
+  orgId: "",
+  region: "eu",
+  incPattern: "INC",
+  snowCallerId: "",
+  assignmentGroup: "SOC_N1",
+};
 
 export default function Customers() {
   const { customers, refetch } = useCustomer();
@@ -90,7 +101,15 @@ export default function Customers() {
 
   const openEdit = (c: typeof customers[0]) => {
     setEditingId(c.id);
-    setForm({ name: c.name, apiKey: "", region: c.region, incPattern: c.incPattern });
+    setForm({
+      name: c.name,
+      apiKey: "",
+      orgId: c.orgId ?? "",
+      region: c.region,
+      incPattern: c.incPattern,
+      snowCallerId: c.snowCallerId ?? "",
+      assignmentGroup: c.assignmentGroup ?? "SOC_N1",
+    });
     setShowKey(false);
     setShowModal(true);
   };
@@ -98,12 +117,32 @@ export default function Customers() {
   const handleSubmit = () => {
     if (!form.name.trim()) { toast.error("Nome obrigatório"); return; }
     if (!editingId && !form.apiKey.trim()) { toast.error("API Key obrigatória"); return; }
+    const orgIdVal = form.orgId.trim() || undefined;
+    const snowCallerIdVal = form.snowCallerId.trim() || undefined;
+    const assignmentGroupVal = form.assignmentGroup.trim() || undefined;
+
     if (editingId) {
-      const data: Parameters<typeof updateMutation.mutate>[0] = { id: editingId, name: form.name, region: form.region as "us"|"eu"|"ca"|"au"|"ap", incPattern: form.incPattern };
+      const data: Parameters<typeof updateMutation.mutate>[0] = {
+        id: editingId,
+        name: form.name,
+        region: form.region as "us" | "eu" | "ca" | "au" | "ap",
+        incPattern: form.incPattern,
+        orgId: orgIdVal ?? null,
+        snowCallerId: snowCallerIdVal ?? null,
+        assignmentGroup: assignmentGroupVal ?? null,
+      };
       if (form.apiKey.trim()) data.apiKey = form.apiKey;
       updateMutation.mutate(data);
     } else {
-      createMutation.mutate({ name: form.name, apiKey: form.apiKey, region: form.region as "us"|"eu"|"ca"|"au"|"ap", incPattern: form.incPattern });
+      createMutation.mutate({
+        name: form.name,
+        apiKey: form.apiKey,
+        orgId: orgIdVal,
+        region: form.region as "us" | "eu" | "ca" | "au" | "ap",
+        incPattern: form.incPattern,
+        snowCallerId: snowCallerIdVal,
+        assignmentGroup: assignmentGroupVal,
+      });
     }
   };
 
@@ -140,7 +179,9 @@ export default function Customers() {
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Nome</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Região</th>
+                <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Org ID</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Padrão INC</th>
+                <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Caller ID</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">API Key</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Conexão</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Ações</th>
@@ -165,7 +206,25 @@ export default function Customers() {
                       </span>
                     </td>
                     <td className="py-3 px-4">
+                      {c.orgId ? (
+                        <span className="font-mono text-xs text-muted-foreground" title={c.orgId}>
+                          {c.orgId.length > 16 ? `${c.orgId.slice(0, 8)}…${c.orgId.slice(-6)}` : c.orgId}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/40 italic">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
                       <span className="font-mono text-xs text-muted-foreground">{c.incPattern}</span>
+                    </td>
+                    <td className="py-3 px-4">
+                      {c.snowCallerId ? (
+                        <span className="font-mono text-xs text-muted-foreground" title={c.snowCallerId}>
+                          {c.snowCallerId.length > 12 ? `${c.snowCallerId.slice(0, 8)}…` : c.snowCallerId}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-yellow-400/60 italic">não configurado</span>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <span className="font-mono text-xs text-muted-foreground">{c.apiKeyPreview}</span>
@@ -223,6 +282,7 @@ export default function Customers() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            {/* Nome */}
             <div className="space-y-1.5">
               <Label className="text-sm text-foreground">Nome do Customer *</Label>
               <Input
@@ -233,6 +293,7 @@ export default function Customers() {
               />
             </div>
 
+            {/* API Key */}
             <div className="space-y-1.5">
               <Label className="text-sm text-foreground">
                 API Key do Rapid7 {editingId ? "(deixe vazio para manter)" : "*"}
@@ -253,8 +314,30 @@ export default function Customers() {
                   {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Obtenha em: Insight Platform → API Keys
+              </p>
             </div>
 
+            {/* Organization ID */}
+            <div className="space-y-1.5">
+              <Label className="text-sm text-foreground flex items-center gap-1.5">
+                <Hash className="w-3.5 h-3.5 text-muted-foreground" />
+                Organization ID
+                <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+              </Label>
+              <Input
+                placeholder="Ex: 00000000-0000-0000-0000-000000000000"
+                value={form.orgId}
+                onChange={(e) => setForm((f) => ({ ...f, orgId: e.target.value.trim() }))}
+                className="bg-input border-border font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                UUID do tenant Rapid7. Necessário para a API InsightConnect (jobs/workflows).
+              </p>
+            </div>
+
+            {/* Região + Padrão INC */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-sm text-foreground">Região</Label>
@@ -279,6 +362,43 @@ export default function Customers() {
                   className="bg-input border-border font-mono"
                   maxLength={16}
                 />
+              </div>
+            </div>
+
+            {/* Separador ServiceNow */}
+            <div className="border-t border-border pt-4">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">ServiceNow — Abertura de Incidentes</p>
+
+              {/* Caller ID */}
+              <div className="space-y-1.5 mb-3">
+                <Label className="text-sm text-foreground flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-muted-foreground" />
+                  Caller ID (sys_id)
+                  <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                </Label>
+                <Input
+                  placeholder="Ex: b1671aeec36526103c5a955a0501313a"
+                  value={form.snowCallerId}
+                  onChange={(e) => setForm((f) => ({ ...f, snowCallerId: e.target.value.trim() }))}
+                  className="bg-input border-border font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  sys_id do utilizador caller no ServiceNow. Obtenha em: ServiceNow → User → sys_id.
+                </p>
+              </div>
+
+              {/* Assignment Group */}
+              <div className="space-y-1.5">
+                <Label className="text-sm text-foreground">Assignment Group</Label>
+                <Input
+                  placeholder="SOC_N1"
+                  value={form.assignmentGroup}
+                  onChange={(e) => setForm((f) => ({ ...f, assignmentGroup: e.target.value }))}
+                  className="bg-input border-border font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Grupo de atribuição para os incidentes criados (default: SOC_N1).
+                </p>
               </div>
             </div>
           </div>

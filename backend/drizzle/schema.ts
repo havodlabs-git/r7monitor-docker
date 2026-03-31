@@ -33,7 +33,10 @@ export const r7Customers = pgTable("r7_customers", {
   name:       varchar("name", { length: 128 }).notNull(),
   apiKey:     text("api_key").notNull(),
   region:     varchar("region", { length: 8 }).notNull().default("us"),
-  incPattern: varchar("inc_pattern", { length: 32 }).notNull().default("INC"),
+  orgId:            varchar("org_id", { length: 64 }),
+  incPattern:       varchar("inc_pattern", { length: 32 }).notNull().default("INC"),
+  snowCallerId:     varchar("snow_caller_id", { length: 64 }),
+  assignmentGroup:  varchar("assignment_group", { length: 128 }).notNull().default("SOC_N1"),
   createdAt:  timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt:  timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

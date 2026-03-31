@@ -5,7 +5,10 @@ type Customer = {
   id: number;
   name: string;
   region: string;
+  orgId: string | null;
   incPattern: string;
+  snowCallerId: string | null;
+  assignmentGroup: string;
   apiKeyPreview: string;
   createdAt: Date;
 };
