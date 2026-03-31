@@ -314,7 +314,8 @@ export async function getInvestigationComments(
 
 /**
  * Cria um comentário numa investigation do InsightIDR.
- * Endpoint: POST /idr/v1/comments/{rrn}
+ * Endpoint: POST /idr/v1/comments
+ * Body: { target: rrn, body: text }
  * Usado para adicionar o número do INC (ServiceNow) à investigation.
  */
 export async function createInvestigationComment(
@@ -323,7 +324,7 @@ export async function createInvestigationComment(
   rrn: string,
   body: string,
 ): Promise<void> {
-  const url = new URL(`${idrBase(region)}/idr/v1/comments/${encodeURIComponent(rrn)}`);
+  const url = new URL(`${idrBase(region)}/idr/v1/comments`);
 
   const res = await fetch(url.toString(), {
     method: "POST",
@@ -332,7 +333,7 @@ export async function createInvestigationComment(
       "Content-Type": "application/json",
       "Accept": "application/json",
     },
-    body: JSON.stringify({ body }),
+    body: JSON.stringify({ target: rrn, body }),
   });
 
   if (!res.ok) {
