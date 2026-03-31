@@ -26,7 +26,7 @@ export default function Investigations() {
     ? { customerId: selectedCustomerId, minutesAgo, size: 100 }
     : skipToken;
 
-  const { data, isLoading, isError, error } = trpc.investigations.withoutInc.useQuery(queryInput, { retry: 1 });
+  const { data, isLoading, isError, error } = trpc.investigations.withoutInc.useQuery(queryInput, { retry: 0 });
 
   const handleRefresh = useCallback(() => {
     if (selectedCustomerId === null) return;
@@ -54,7 +54,7 @@ export default function Investigations() {
   const investigations = data?.investigations ?? [];
   const filtered = investigations.filter((inv) => {
     const matchSearch = !search ||
-      inv.title.toLowerCase().includes(search.toLowerCase()) ||
+      (inv.title ?? "").toLowerCase().includes(search.toLowerCase()) ||
       (inv.id ?? "").toLowerCase().includes(search.toLowerCase());
     const matchPriority = priority === "ALL" || inv.priority === priority;
     return matchSearch && matchPriority;

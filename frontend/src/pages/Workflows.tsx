@@ -25,14 +25,15 @@ function formatDate(iso?: string): string {
 }
 
 type Job = {
-  id: string;
-  workflowId: string;
-  workflowName: string;
-  workflowState: string;
-  status: string;
-  startedAt: string;
-  completedAt?: string;
-  error?: string;
+  id?: string | null;
+  jobId?: string | null;
+  workflowId?: string | null;
+  workflowName?: string | null;
+  workflowState?: string | null;
+  status?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  error?: string | null;
   stepErrors?: Array<{ step: string; message: string }>;
 };
 
@@ -57,8 +58,8 @@ function JobRow({ job }: { job: Job }) {
                 : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             ) : <span className="w-3.5" />}
             <div>
-              <p className="text-sm font-medium text-foreground">{job.workflowName}</p>
-              <p className="text-xs text-muted-foreground font-mono">{job.workflowId.slice(0, 16)}…</p>
+              <p className="text-sm font-medium text-foreground">{job.workflowName ?? "—"}</p>
+              <p className="text-xs text-muted-foreground font-mono">{(job.workflowId ?? job.jobId ?? "").slice(0, 16)}…</p>
             </div>
           </div>
         </td>
@@ -68,8 +69,8 @@ function JobRow({ job }: { job: Job }) {
             Falhado
           </span>
         </td>
-        <td className="py-3 px-4 text-sm text-muted-foreground tabular-nums">{formatDate(job.startedAt)}</td>
-        <td className="py-3 px-4 text-sm text-muted-foreground tabular-nums">{formatDuration(job.startedAt, job.completedAt)}</td>
+        <td className="py-3 px-4 text-sm text-muted-foreground tabular-nums">{formatDate(job.startedAt ?? undefined)}</td>
+        <td className="py-3 px-4 text-sm text-muted-foreground tabular-nums">{formatDuration(job.startedAt ?? undefined, job.completedAt ?? undefined)}</td>
         <td className="py-3 px-4 text-sm text-muted-foreground max-w-xs truncate">{job.error ?? "—"}</td>
       </tr>
       {expanded && hasDetails && (
@@ -111,7 +112,7 @@ export default function Workflows() {
     ? { customerId: selectedCustomerId, minutesAgo, limit: 100 }
     : skipToken;
 
-  const { data, isLoading, isError, error } = trpc.workflows.failedJobs.useQuery(queryInput, { retry: 1 });
+  const { data, isLoading, isError, error } = trpc.workflows.failedJobs.useQuery(queryInput, { retry: 0 });
 
   const handleRefresh = useCallback(() => {
     if (selectedCustomerId === null) return;
@@ -136,11 +137,11 @@ export default function Workflows() {
     );
   }
 
-  const jobs = (data?.jobs ?? []) as Job[];
+  const jobs = ((data?.jobs ?? []) as Job[]).filter(j => j != null);
   const filtered = jobs.filter((j) =>
-    !search || j.workflowName.toLowerCase().includes(search.toLowerCase()) || j.workflowId.toLowerCase().includes(search.toLowerCase())
+    !search || (j.workflowName ?? "").toLowerCase().includes(search.toLowerCase()) || (j.jobId ?? j.workflowId ?? "").toLowerCase().includes(search.toLowerCase())
   );
-  const byWorkflow = data?.byWorkflow ?? [];
+  const byWorkflow = (data?.byWorkflow ?? []) as Array<{ workflowId: string; name: string; count: number }>;
   const rangeLabel = timeRangeLabel(minutesAgo);
 
   return (
@@ -208,7 +209,7 @@ export default function Workflows() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((job) => <JobRow key={job.id} job={job} />)}
+                {filtered.map((job, idx) => <JobRow key={job.jobId ?? job.id ?? idx} job={job} />)}
               </tbody>
             </table>
           </div>
